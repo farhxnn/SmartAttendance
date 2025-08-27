@@ -117,87 +117,103 @@
     </div>
 
     <script>
-        const scanQrBtn = document.getElementById("scanQrBtn");
-        const statusEl = document.getElementById("status");
-        const qrReaderContainer = document.getElementById("qr-reader-container");
-        let html5QrCode;
-        let currentPosition = null;
+const scanQrBtn = document.getElementById("scanQrBtn");
+const statusEl = document.getElementById("status");
+const qrReaderContainer = document.getElementById("qr-reader-container");
+let html5QrCode;
+let currentPosition = null;
 
-        // Function to get location
-        function getLocation() {
-            return new Promise((resolve, reject) => {
-                if (!navigator.geolocation) {
-                    reject("Geolocation is not supported by your browser.");
-                    return;
-                }
-                statusEl.textContent = "Requesting location...";
-                navigator.geolocation.getCurrentPosition(resolve, () => {
-                    reject("Permission denied or unable to retrieve location.");
-                });
-            });
+function getLocation() {
+    return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            reject("Geolocation is not supported by your browser.");
+            return;
+        }
+        statusEl.textContent = "Requesting location...";
+        navigator.geolocation.getCurrentPosition(resolve, () => {
+            reject("Permission denied or unable to retrieve location.");
+        });
+    });
+}
+
+scanQrBtn.addEventListener("click", async function() {
+    if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().then(() => {
+            qrReaderContainer.style.display = 'none';
+            statusEl.textContent = "Scanner stopped.";
+        });
+        return;
+    }
+    
+    try {
+        const position = await getLocation();
+        currentPosition = position;
+        statusEl.textContent = "Location acquired. Please scan the QR code.";
+        qrReaderContainer.style.display = 'block';
+
+        if (!html5QrCode) {
+            html5QrCode = new Html5Qrcode("qr-reader");
         }
 
-        // --- QR Code Scanner with Geolocation ---
-        scanQrBtn.addEventListener("click", async function() {
-            if (html5QrCode && html5QrCode.isScanning) {
-                html5QrCode.stop().then(() => {
-                    qrReaderContainer.style.display = 'none';
-                    statusEl.textContent = "Scanner stopped.";
-                });
-                return;
-            }
-            
-            try {
-                const position = await getLocation();
-                currentPosition = position;
-                statusEl.textContent = "Location acquired. Please scan the QR code.";
-                qrReaderContainer.style.display = 'block';
-
-                if (!html5QrCode) {
-                    html5QrCode = new Html5Qrcode("qr-reader");
+        html5QrCode.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            (decodedText, decodedResult) => {
+                console.log("🔍 QR Code scanned:", decodedText);
+                
+                if (html5QrCode.isScanning) {
+                    html5QrCode.stop();
                 }
-
-                html5QrCode.start(
-                    { facingMode: "environment" },
-                    { fps: 10, qrbox: { width: 250, height: 250 } },
-                    (decodedText, decodedResult) => {
-                        // Handle successful scan
-                        if (html5QrCode.isScanning) {
-                            html5QrCode.stop();
-                        }
-                        statusEl.textContent = "QR Code detected. Verifying...";
-                        
-                        fetch("/mark_attendance_qr", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ 
-                                qr_data: decodedText,
-                                latitude: currentPosition.coords.latitude,
-                                longitude: currentPosition.coords.longitude
-                            })
-                        })
-                        .then(response => response.json())
-                        .then(result => {
-                            statusEl.textContent = result.message;
-                            qrReaderContainer.style.display = 'none';
-                        })
-                        .catch(error => {
-                            statusEl.textContent = "Error marking attendance.";
-                            console.error(error);
-                        });
-                    },
-                    (errorMessage) => {
-                        // This is called when no QR is found, can be ignored
+                statusEl.textContent = "QR Code detected. Verifying...";
+                
+                const requestData = { 
+                    qr_data: decodedText,
+                    latitude: currentPosition.coords.latitude,
+                    longitude: currentPosition.coords.longitude
+                };
+                
+                console.log("📤 Sending request:", requestData);
+                
+                fetch("/mark_attendance_qr", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(requestData)
+                })
+                .then(response => {
+                    console.log("📥 Response status:", response.status);
+                    console.log("📥 Response headers:", response.headers);
+                    return response.text(); // Get as text first
+                })
+                .then(text => {
+                    console.log("📥 Raw response:", text);
+                    try {
+                        const result = JSON.parse(text);
+                        console.log("📥 Parsed response:", result);
+                        statusEl.textContent = result.message;
+                    } catch (e) {
+                        console.error("❌ JSON parse error:", e);
+                        statusEl.textContent = "Server returned invalid response";
                     }
-                ).catch((err) => {
-                    statusEl.textContent = "Could not start QR scanner.";
-                    console.error(err);
+                    qrReaderContainer.style.display = 'none';
+                })
+                .catch(error => {
+                    console.error("❌ Fetch error:", error);
+                    statusEl.textContent = "Network error: " + error.message;
                 });
-
-            } catch (error) {
-                statusEl.textContent = error;
+            },
+            (errorMessage) => {
+                // This is called when no QR is found, can be ignored
             }
+        ).catch((err) => {
+            console.error("❌ QR Scanner error:", err);
+            statusEl.textContent = "Could not start QR scanner.";
         });
-    </script>
+
+    } catch (error) {
+        console.error("❌ Location error:", error);
+        statusEl.textContent = error;
+    }
+});
+</script>
 </body>
 </html>
