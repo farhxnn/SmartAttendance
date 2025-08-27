@@ -196,13 +196,14 @@ def view_attendance():
     return render_template('view_attendance.html', subject=subject, chart_labels=chart_labels, chart_data=chart_data)
 
 
-# --------- GENERATE QR CODE ----------
+# --------- GENERATE QR CODE (FIXED) ----------
 @app.route('/generate_qr')
 @admin_required
 def generate_qr():
-    subject = request.args.get('subject')
+    # IMPROVEMENT: Get subject from the session, it's more reliable
+    subject = session.get('subject') 
     if not subject:
-        flash("Subject is required.")
+        flash("Could not find subject for your session.")
         return redirect(url_for('admin_dashboard'))
 
     teacher_email_for_qr = session['user']
@@ -215,7 +216,8 @@ def generate_qr():
     
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
-    qr_b64 = base64.b664encode(buffer.getvalue()).decode('ascii')
+    # FIX: Corrected b64encode from b664encode
+    qr_b64 = base64.b64encode(buffer.getvalue()).decode('ascii')
     
     session["qr_data"] = "data:image/png;base64," + qr_b64
     return redirect(url_for('admin_dashboard'))
