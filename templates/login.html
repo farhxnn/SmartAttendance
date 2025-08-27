@@ -125,6 +125,8 @@
             background: #f8d7da;
             color: #721c24;
             border: 1px solid #f5c6cb;
+            /* Add transition for the fade effect */
+            transition: opacity 0.5s ease-out;
         }
     </style>
 </head>
@@ -156,6 +158,22 @@
     </div>
 
     <script>
+        // --- START: SCRIPT TO FADE FLASH MESSAGES ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const flashMessage = document.querySelector('.flash-messages');
+            if (flashMessage) {
+                // Wait 3 seconds before starting to fade out
+                setTimeout(() => {
+                    flashMessage.style.opacity = '0';
+                    // After fade out, remove the element so it doesn't take up space
+                    setTimeout(() => {
+                        flashMessage.style.display = 'none';
+                    }, 500); // 0.5s matches the CSS transition time
+                }, 3000); // 3 seconds
+            }
+        });
+        // --- END: SCRIPT TO FADE FLASH MESSAGES ---
+
         // JavaScript to cycle through different quotes
         const quotes = [
             "Good attendance = Better grades.",

@@ -10,6 +10,7 @@ import base64
 import pandas as pd
 from functools import wraps
 from collections import defaultdict
+import os
 
 # ------------------ CONFIG ------------------
 CAMPUS_LAT = 28.72353
@@ -17,7 +18,7 @@ CAMPUS_LON = 77.22076
 CAMPUS_RADIUS_METERS = 200
 
 app = Flask(__name__)
-app.secret_key = "dev_secret"
+app.secret_key = os.environ.get("SECRET_KEY")
 app.permanent_session_lifetime = timedelta(days=7)
 
 # ------------------ ADMIN CREDENTIALS ------------------
@@ -66,7 +67,7 @@ def distance(lat1, lon1, lat2, lon2):
 def home():
     return redirect(url_for('login'))
 
-# --------- STUDENT SIGNUP (UPDATED) ----------
+# --------- STUDENT SIGNUP ----------
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if request.method == 'POST':
@@ -98,8 +99,7 @@ def signup():
             flash("Signup successful! You are now logged in.")
             return redirect(url_for('dashboard'))
         except Exception as e:
-            print(e)
-            flash("Error during signup. Email may already be in use.")
+            flash(f"Error during signup: {e}")
             return redirect(url_for('signup'))
 
     return render_template('signup.html')
@@ -123,7 +123,6 @@ def login():
             session['role'] = user_info.get("role") if user_info else "student"
             return redirect(url_for('dashboard'))
         except Exception as e:
-            print(e)
             flash("Invalid credentials. Try again.")
             return redirect(url_for('login'))
 
@@ -156,7 +155,7 @@ def dashboard():
     name = user_info.get("name") if user_info else session['user']
     return render_template('dashboard.html', user=name, role=session.get('role'))
 
-# --------- ADMIN DASHBOARD (UPDATED)----------
+# --------- ADMIN DASHBOARD ----------
 @app.route('/admin_dashboard')
 @admin_required
 def admin_dashboard():
@@ -164,9 +163,12 @@ def admin_dashboard():
     subject = session.get('subject')
     records = []
 
-    data = db.child("attendance").child(teacher_email.replace('.', ',')).child(subject).get().val()
-    if data:
-        records = list(data.values())
+    try:
+        data = db.child("attendance").child(teacher_email.replace('.', ',')).child(subject).get().val()
+        if data:
+            records = list(data.values())
+    except Exception as e:
+        flash(f"Could not fetch attendance records: {e}")
 
     qr_data = session.get("qr_data")
     return render_template('admin_dashboard.html', user=teacher_email, records=records, subject=subject, qr_data=qr_data)
@@ -182,8 +184,11 @@ def view_attendance():
     daily_counts = defaultdict(int)
     if all_records:
         for record in all_records.values():
-            record_date = datetime.fromisoformat(record['timestamp']).strftime('%Y-%m-%d')
-            daily_counts[record_date] += 1
+            try:
+                record_date = datetime.fromisoformat(record['timestamp']).strftime('%Y-%m-%d')
+                daily_counts[record_date] += 1
+            except (ValueError, TypeError):
+                continue # Skip records with invalid timestamp
     sorted_daily_counts = sorted(daily_counts.items())
     chart_labels = [item[0] for item in sorted_daily_counts]
     chart_data = [item[1] for item in sorted_daily_counts]
@@ -200,30 +205,29 @@ def generate_qr():
         flash("Subject is required.")
         return redirect(url_for('admin_dashboard'))
 
-    teacher_email_db_key = session['user'].replace('.', ',')
     teacher_email_for_qr = session['user']
     qr_text = f"{teacher_email_for_qr}|{subject}"
+    
     qr = qrcode.QRCode(box_size=10, border=4)
     qr.add_data(qr_text)
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
+    
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
-    qr_b64 = base64.b64encode(buffer.getvalue()).decode('ascii')
+    qr_b64 = base64.b664encode(buffer.getvalue()).decode('ascii')
+    
     session["qr_data"] = "data:image/png;base64," + qr_b64
-    session["current_qr"] = qr_text
-
     return redirect(url_for('admin_dashboard'))
 
-# --------- MARK ATTENDANCE VIA QR (UPDATED) ----------
+# --------- MARK ATTENDANCE VIA QR (IMPROVED) ----------
 @app.route('/mark_attendance_qr', methods=['POST'])
 @student_required
 def mark_attendance_qr():
     data = request.get_json()
-    if not data or "qr_data" not in data or "latitude" not in data:
-        return jsonify({"message": "Missing required data."}), 400
+    if not data or "qr_data" not in data or "latitude" not in data or "longitude" not in data:
+        return jsonify({"message": "Missing required location or QR data."}), 400
 
-    qr_data = data.get("qr_data")
     lat = float(data.get("latitude"))
     lon = float(data.get("longitude"))
 
@@ -231,6 +235,7 @@ def mark_attendance_qr():
         return jsonify({"message": "You are outside the campus. Attendance not marked."}), 403
 
     try:
+        qr_data = data.get("qr_data")
         teacher_email, subject = qr_data.split("|")
         teacher_email_db = teacher_email.replace('.', ',')
     except (ValueError, TypeError):
@@ -241,21 +246,23 @@ def mark_attendance_qr():
         student_email_db_key = student_email.replace('.', ',')
         
         user_details = db.child("users").child(student_email_db_key).get().val()
-        if not user_details:
-            return jsonify({"message": "Could not find your student profile."}), 404
+        if not user_details or "name" not in user_details or "sol_roll_no" not in user_details:
+            return jsonify({"message": "Your profile is incomplete. Cannot mark attendance."}), 404
             
-        student_name = user_details.get("name", "N/A")
-        student_sol_roll_no = user_details.get("sol_roll_no", "N/A")
+        student_name = user_details["name"]
+        student_sol_roll_no = user_details["sol_roll_no"]
 
         attendance_path = db.child("attendance").child(teacher_email_db).child(subject)
-        existing_records = attendance_path.order_by_child('email').equal_to(student_email).get().val()
-
+        
+        # Check if attendance was already marked for this subject today
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        existing_records = attendance_path.get().val()
         if existing_records:
             for record in existing_records.values():
-                record_date = datetime.fromisoformat(record['timestamp']).date()
-                if record_date == datetime.today().date():
-                     return jsonify({"message": "Attendance already marked for today's session."}), 400
+                if record.get("email") == student_email and record.get("timestamp", "").startswith(today_str):
+                    return jsonify({"message": f"Attendance already marked for {subject} today."}), 409 # 409 Conflict
 
+        # Push new attendance record
         attendance_path.push({
             "name": student_name,
             "sol_roll_no": student_sol_roll_no,
@@ -266,30 +273,28 @@ def mark_attendance_qr():
             "inside_campus": True
         })
 
-        return jsonify({"message": "Attendance marked successfully!"})
+        return jsonify({"message": f"Attendance marked successfully for {subject}!"})
     except Exception as e:
         print(f"Error during QR attendance marking: {e}")
-        return jsonify({"message": "A server error occurred."}), 500
+        return jsonify({"message": "A server error occurred while saving the record."}), 500
 
-# --------- DOWNLOAD ATTENDANCE EXCEL (UPDATED)----------
+# --------- DOWNLOAD ATTENDANCE EXCEL ----------
 @app.route('/download_attendance')
 @admin_required
 def download_attendance():
     teacher_email = session.get('user')
     subject = session.get('subject')
-
     teacher_email_db = teacher_email.replace('.', ',')
+    
     data = db.child("attendance").child(teacher_email_db).child(subject).get().val()
 
-    if not data:
-        flash("No attendance records to download for this session.")
-        return redirect(url_for('admin_dashboard'))
+    columns = ['sol_roll_no', 'name', 'timestamp', 'email', 'latitude', 'longitude']
 
-    df = pd.DataFrame(list(data.values()))
-    
-    # Reorder columns for a cleaner report
-    if 'sol_roll_no' in df.columns and 'name' in df.columns:
-        df = df[['sol_roll_no', 'name', 'timestamp', 'email', 'latitude', 'longitude']]
+    if not data:
+        df = pd.DataFrame(columns=columns)
+    else:
+        df = pd.DataFrame(list(data.values()))
+        df = df.reindex(columns=columns)
 
     buffer = io.BytesIO()
     df.to_excel(buffer, index=False, engine='openpyxl')
@@ -298,6 +303,7 @@ def download_attendance():
     return send_file(buffer, as_attachment=True,
                      download_name=f"{subject}_attendance_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
 
 # --------- LOGOUT ----------
 @app.route('/logout')

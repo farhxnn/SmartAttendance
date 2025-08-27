@@ -1,25 +1,18 @@
 import pyrebase
 import os
-import json
 
-# Get the JSON string of the credentials from the environment variable
-service_account_json_str = os.environ.get("FIREBASE_CREDENTIALS_JSON")
-
-if not service_account_json_str:
-    raise ValueError("FIREBASE_CREDENTIALS_JSON environment variable not set.")
-
-# Convert the JSON string into a Python dictionary
-service_account_config = json.loads(service_account_json_str)
-
+# Get credentials from Environment Variables using the simple web API key method
 config = {
-    # Use the service account for authentication
-    "serviceAccount": service_account_config,
-    # The databaseURL is still needed
-    "databaseURL": os.environ.get("FIREBASE_DATABASE_URL")
+    "apiKey": os.environ.get("FIREBASE_API_KEY"),
+    "authDomain": os.environ.get("FIREBASE_AUTH_DOMAIN"),
+    "databaseURL": os.environ.get("FIREBASE_DATABASE_URL"),
+    "projectId": os.environ.get("FIREBASE_PROJECT_ID"),
+    "storageBucket": os.environ.get("FIREBASE_STORAGE_BUCKET"),
+    "messagingSenderId": os.environ.get("FIREBASE_MESSAGING_SENDER_ID"),
+    "appId": os.environ.get("FIREBASE_APP_ID")
 }
 
 # Initialize Firebase
 firebase = pyrebase.initialize_app(config)
-auth = firebase.auth()
-db = firebase.database()
-storage = firebase.storage()
+auth = firebase.auth()   # Firebase Authentication
+db = firebase.database() # Firebase Realtime Database
