@@ -164,14 +164,16 @@ def admin_dashboard():
     subject = session.get('subject')
     
     print("\n--- ADMIN DASHBOARD LOG ---", flush=True)
-    read_path = f"attendance/{teacher_email.replace('.', ',')}/{subject}"
+    # NEW PATH: Read from attendance/SUBJECT/TEACHER_EMAIL
+    read_path = f"attendance/{subject}/{teacher_email.replace('.', ',')}"
     print(f"Reading from Firebase path: {read_path}", flush=True)
     
     all_records = []
     todays_records = []
     
     try:
-        all_data = db.child("attendance").child(teacher_email.replace('.', ',')).child(subject).get().val()
+        # UPDATED to use the new path structure
+        all_data = db.child("attendance").child(subject).child(teacher_email.replace('.', ',')).get().val()
         
         if all_data and isinstance(all_data, dict):
             print(f"SUCCESS: Fetched {len(all_data)} total records from Firebase.", flush=True)
@@ -189,7 +191,7 @@ def admin_dashboard():
             
             print(f"Found {len(todays_records)} records for today.", flush=True)
         else:
-            print("INFO: No data or invalid data format found at the specified path.", flush=True)
+            print("INFO: No data found at the specified path.", flush=True)
             
     except Exception as e:
         print(f"ERROR: An exception occurred while fetching records: {e}", flush=True)
@@ -212,7 +214,8 @@ def admin_dashboard():
 def view_attendance():
     teacher_email = session['user']
     subject = session.get('subject')
-    all_records = db.child("attendance").child(teacher_email.replace('.', ',')).child(subject).get().val()
+    # UPDATED to use the new path structure
+    all_records = db.child("attendance").child(subject).child(teacher_email.replace('.', ',')).get().val()
     daily_counts = defaultdict(int)
     if all_records and isinstance(all_records, dict):
         for record in all_records.values():
@@ -285,7 +288,8 @@ def mark_attendance_qr():
         student_name = user_details["name"]
         student_sol_roll_no = user_details["sol_roll_no"]
 
-        attendance_path = db.child("attendance").child(teacher_email_db).child(subject)
+        # NEW PATH: Write to attendance/SUBJECT/TEACHER_EMAIL
+        attendance_path = db.child("attendance").child(subject).child(teacher_email_db)
         
         today_str = datetime.now().strftime('%Y-%m-%d')
         existing_records = attendance_path.get().val()
@@ -318,7 +322,8 @@ def download_attendance():
     subject = session.get('subject')
     teacher_email_db = teacher_email.replace('.', ',')
     
-    data = db.child("attendance").child(teacher_email_db).child(subject).get().val()
+    # UPDATED to use the new path structure
+    data = db.child("attendance").child(subject).child(teacher_email_db).get().val()
 
     columns = ['sol_roll_no', 'name', 'timestamp', 'email', 'latitude', 'longitude']
     
