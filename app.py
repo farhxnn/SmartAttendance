@@ -11,6 +11,7 @@ import pandas as pd
 from functools import wraps
 from collections import defaultdict
 import os
+import sys # Import sys for flushing output
 
 # ------------------ CONFIG ------------------
 CAMPUS_LAT = 28.72353
@@ -162,10 +163,9 @@ def admin_dashboard():
     teacher_email = session['user']
     subject = session.get('subject')
     
-    # --- Start of new debug logic ---
-    print("--- Admin Dashboard Log ---")
+    print("\n--- ADMIN DASHBOARD LOG ---", flush=True)
     read_path = f"attendance/{teacher_email.replace('.', ',')}/{subject}"
-    print(f"Attempting to read from Firebase path: {read_path}")
+    print(f"Reading from Firebase path: {read_path}", flush=True)
     
     all_records = []
     todays_records = []
@@ -173,30 +173,29 @@ def admin_dashboard():
     try:
         all_data = db.child("attendance").child(teacher_email.replace('.', ',')).child(subject).get().val()
         
-        if all_data:
-            print(f"Successfully fetched {len(all_data)} total records from Firebase.")
-            all_records = list(all_data.values()) # Keep a list of all records
+        if all_data and isinstance(all_data, dict):
+            print(f"SUCCESS: Fetched {len(all_data)} total records from Firebase.", flush=True)
+            all_records = list(all_data.values())
             
             today_str = datetime.now().strftime('%Y-%m-%d')
-            print(f"Filtering for today's date: {today_str}")
+            print(f"Filtering for today's date: {today_str}", flush=True)
             
             for record in all_records:
-                # Check if the record is a dictionary and has a timestamp
                 if isinstance(record, dict) and 'timestamp' in record:
                     if record.get('timestamp', '').startswith(today_str):
                         todays_records.append(record)
                 else:
-                    print(f"Skipping malformed record: {record}")
+                    print(f"WARNING: Skipping malformed record: {record}", flush=True)
             
-            print(f"Found {len(todays_records)} records for today.")
+            print(f"Found {len(todays_records)} records for today.", flush=True)
         else:
-            print("No data found at the specified path in Firebase.")
+            print("INFO: No data or invalid data format found at the specified path.", flush=True)
             
     except Exception as e:
-        print(f"An exception occurred while fetching records: {e}")
+        print(f"ERROR: An exception occurred while fetching records: {e}", flush=True)
         flash(f"Could not fetch attendance records: {e}")
 
-    print("--- End Admin Dashboard Log ---")
+    print("--- END ADMIN DASHBOARD LOG ---\n", flush=True)
     qr_data = session.get("qr_data")
     
     return render_template('admin_dashboard.html', 
@@ -215,13 +214,14 @@ def view_attendance():
     subject = session.get('subject')
     all_records = db.child("attendance").child(teacher_email.replace('.', ',')).child(subject).get().val()
     daily_counts = defaultdict(int)
-    if all_records:
+    if all_records and isinstance(all_records, dict):
         for record in all_records.values():
             try:
-                record_date = datetime.fromisoformat(record['timestamp']).strftime('%Y-%m-%d')
-                daily_counts[record_date] += 1
-            except (ValueError, TypeError, AttributeError):
-                continue # Skip records with invalid timestamp or format
+                if isinstance(record, dict):
+                    record_date = datetime.fromisoformat(record['timestamp']).strftime('%Y-%m-%d')
+                    daily_counts[record_date] += 1
+            except (ValueError, TypeError, AttributeError, KeyError):
+                continue
     sorted_daily_counts = sorted(daily_counts.items())
     chart_labels = [item[0] for item in sorted_daily_counts]
     chart_data = [item[1] for item in sorted_daily_counts]
@@ -289,12 +289,12 @@ def mark_attendance_qr():
         
         today_str = datetime.now().strftime('%Y-%m-%d')
         existing_records = attendance_path.get().val()
-        if existing_records:
+        if existing_records and isinstance(existing_records, dict):
             for record in existing_records.values():
                 if isinstance(record, dict) and record.get("email") == student_email and record.get("timestamp", "").startswith(today_str):
                     return jsonify({"message": f"Attendance already marked for {subject} today."}), 409
 
-        attendance_path.push({
+        new_record = {
             "name": student_name,
             "sol_roll_no": student_sol_roll_no,
             "email": student_email,
@@ -302,11 +302,12 @@ def mark_attendance_qr():
             "latitude": lat,
             "longitude": lon,
             "inside_campus": True
-        })
+        }
+        attendance_path.push(new_record)
 
         return jsonify({"message": f"Attendance marked successfully for {subject}!"})
     except Exception as e:
-        print(f"Error during QR attendance marking: {e}")
+        print(f"Error during QR attendance marking: {e}", flush=True)
         return jsonify({"message": "A server error occurred while saving the record."}), 500
 
 # --------- DOWNLOAD ATTENDANCE EXCEL ----------
@@ -322,13 +323,11 @@ def download_attendance():
     columns = ['sol_roll_no', 'name', 'timestamp', 'email', 'latitude', 'longitude']
     
     records_list = []
-    if data:
-        # Ensure data is handled correctly if it's a dict
+    if data and isinstance(data, dict):
         records_list = [v for v in data.values() if isinstance(v, dict)]
 
     df = pd.DataFrame(records_list)
     
-    # Ensure all columns exist, even if there's no data
     for col in columns:
         if col not in df.columns:
             df[col] = None
