@@ -28,7 +28,6 @@ ADMINS = {
 
 # ------------------ DECORATORS ------------------
 def student_required(f):
-    """Decorator to ensure a user is logged in as a student."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if session.get('role') != 'student':
@@ -41,7 +40,6 @@ def student_required(f):
     return decorated_function
 
 def admin_required(f):
-    """Decorator to ensure a user is logged in as an admin."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if session.get('role') != 'admin':
@@ -53,7 +51,6 @@ def admin_required(f):
 
 # ------------------ HELPER ------------------
 def distance(lat1, lon1, lat2, lon2):
-    """Haversine formula to calculate distance in meters"""
     R = 6371000
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
@@ -69,11 +66,14 @@ def distance(lat1, lon1, lat2, lon2):
 def home():
     return redirect(url_for('login'))
 
-# --------- STUDENT SIGNUP ----------
+# --------- STUDENT SIGNUP (UPDATED) ----------
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if request.method == 'POST':
         name = request.form.get('name')
+        sol_roll_no = request.form.get('sol_roll_no')
+        dob = request.form.get('dob')
+        phone_no = request.form.get('phone_no')
         email = request.form.get('email')
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
@@ -86,7 +86,10 @@ def signup():
             auth.create_user_with_email_and_password(email, password)
             db.child("users").child(email.replace('.', ',')).set({
                 "role": "student",
-                "name": name
+                "name": name,
+                "sol_roll_no": sol_roll_no,
+                "dob": dob,
+                "phone_no": phone_no
             })
             auth.sign_in_with_email_and_password(email, password)
             session['user'] = email
@@ -153,7 +156,7 @@ def dashboard():
     name = user_info.get("name") if user_info else session['user']
     return render_template('dashboard.html', user=name, role=session.get('role'))
 
-# --------- ADMIN DASHBOARD ----------
+# --------- ADMIN DASHBOARD (UPDATED)----------
 @app.route('/admin_dashboard')
 @admin_required
 def admin_dashboard():
@@ -161,47 +164,31 @@ def admin_dashboard():
     subject = session.get('subject')
     records = []
 
-    # Fetch records for the current QR session only
-    qr_session_key = session.get("current_qr") # This assumes you store a unique key on QR generation
-    if qr_session_key:
-        # A better way would be to fetch based on the date of the QR code generation
-        # For now, we'll stick to displaying all records for simplicity in this view
-        data = db.child("attendance").child(teacher_email.replace('.', ',')).child(subject).get().val()
-        if data:
-            records = list(data.values())
+    data = db.child("attendance").child(teacher_email.replace('.', ',')).child(subject).get().val()
+    if data:
+        records = list(data.values())
 
     qr_data = session.get("qr_data")
     return render_template('admin_dashboard.html', user=teacher_email, records=records, subject=subject, qr_data=qr_data)
 
 
-# --------- VIEW ATTENDANCE REPORT (NEW) ----------
+# --------- VIEW ATTENDANCE REPORT ----------
 @app.route('/view_attendance')
 @admin_required
 def view_attendance():
     teacher_email = session['user']
     subject = session.get('subject')
-
-    # Fetch all historical attendance data for this admin's subject
     all_records = db.child("attendance").child(teacher_email.replace('.', ',')).child(subject).get().val()
-
     daily_counts = defaultdict(int)
     if all_records:
         for record in all_records.values():
-            # Extract the date part from the ISO format timestamp
             record_date = datetime.fromisoformat(record['timestamp']).strftime('%Y-%m-%d')
             daily_counts[record_date] += 1
-
-    # Sort the data by date
     sorted_daily_counts = sorted(daily_counts.items())
-
-    # Prepare data for Chart.js
     chart_labels = [item[0] for item in sorted_daily_counts]
     chart_data = [item[1] for item in sorted_daily_counts]
     
-    return render_template('view_attendance.html',
-                           subject=subject,
-                           chart_labels=chart_labels,
-                           chart_data=chart_data)
+    return render_template('view_attendance.html', subject=subject, chart_labels=chart_labels, chart_data=chart_data)
 
 
 # --------- GENERATE QR CODE ----------
@@ -215,10 +202,6 @@ def generate_qr():
 
     teacher_email_db_key = session['user'].replace('.', ',')
     teacher_email_for_qr = session['user']
-
-    # We are not removing old data anymore to allow for historical reports
-    # db.child("attendance").child(teacher_email_db_key).child(subject).remove()
-
     qr_text = f"{teacher_email_for_qr}|{subject}"
     qr = qrcode.QRCode(box_size=10, border=4)
     qr.add_data(qr_text)
@@ -232,7 +215,7 @@ def generate_qr():
 
     return redirect(url_for('admin_dashboard'))
 
-# --------- MARK ATTENDANCE VIA QR (UPDATED WITH GEOLOCATION) ----------
+# --------- MARK ATTENDANCE VIA QR (UPDATED) ----------
 @app.route('/mark_attendance_qr', methods=['POST'])
 @student_required
 def mark_attendance_qr():
@@ -244,11 +227,9 @@ def mark_attendance_qr():
     lat = float(data.get("latitude"))
     lon = float(data.get("longitude"))
 
-    # 1. Check if student is within campus radius
     if distance(lat, lon, CAMPUS_LAT, CAMPUS_LON) > CAMPUS_RADIUS_METERS:
         return jsonify({"message": "You are outside the campus. Attendance not marked."}), 403
 
-    # 2. If inside campus, proceed with QR validation and marking
     try:
         teacher_email, subject = qr_data.split("|")
         teacher_email_db = teacher_email.replace('.', ',')
@@ -257,8 +238,16 @@ def mark_attendance_qr():
 
     try:
         student_email = session['user']
-        attendance_path = db.child("attendance").child(teacher_email_db).child(subject)
+        student_email_db_key = student_email.replace('.', ',')
         
+        user_details = db.child("users").child(student_email_db_key).get().val()
+        if not user_details:
+            return jsonify({"message": "Could not find your student profile."}), 404
+            
+        student_name = user_details.get("name", "N/A")
+        student_sol_roll_no = user_details.get("sol_roll_no", "N/A")
+
+        attendance_path = db.child("attendance").child(teacher_email_db).child(subject)
         existing_records = attendance_path.order_by_child('email').equal_to(student_email).get().val()
 
         if existing_records:
@@ -268,6 +257,8 @@ def mark_attendance_qr():
                      return jsonify({"message": "Attendance already marked for today's session."}), 400
 
         attendance_path.push({
+            "name": student_name,
+            "sol_roll_no": student_sol_roll_no,
             "email": student_email,
             "timestamp": datetime.now().isoformat(),
             "latitude": lat,
@@ -280,7 +271,7 @@ def mark_attendance_qr():
         print(f"Error during QR attendance marking: {e}")
         return jsonify({"message": "A server error occurred."}), 500
 
-# --------- DOWNLOAD ATTENDANCE EXCEL ----------
+# --------- DOWNLOAD ATTENDANCE EXCEL (UPDATED)----------
 @app.route('/download_attendance')
 @admin_required
 def download_attendance():
@@ -295,6 +286,11 @@ def download_attendance():
         return redirect(url_for('admin_dashboard'))
 
     df = pd.DataFrame(list(data.values()))
+    
+    # Reorder columns for a cleaner report
+    if 'sol_roll_no' in df.columns and 'name' in df.columns:
+        df = df[['sol_roll_no', 'name', 'timestamp', 'email', 'latitude', 'longitude']]
+
     buffer = io.BytesIO()
     df.to_excel(buffer, index=False, engine='openpyxl')
     buffer.seek(0)

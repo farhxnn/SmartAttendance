@@ -95,7 +95,6 @@
             display: inline-block;
         }
         
-        /* Added spacing for action buttons */
         .action-buttons > * {
             margin-right: 10px;
             margin-bottom: 10px;
@@ -180,14 +179,16 @@
             <table class="styled-table">
                 <thead>
                     <tr>
-                        <th>Student Email</th>
-                        <th>Timestamp</th>
+                        <th>SOL Roll Number</th>
+                        <th>Name</th>
+                        <th>Attendance Time</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for record in records %}
                         <tr>
-                            <td>{{ record.email }}</td>
+                            <td>{{ record.sol_roll_no }}</td>
+                            <td>{{ record.name }}</td>
                             <td>{{ record.timestamp }}</td>
                         </tr>
                     {% endfor %}
