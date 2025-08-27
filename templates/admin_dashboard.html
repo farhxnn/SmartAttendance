@@ -173,9 +173,9 @@
                 <img src="{{ qr_data }}" alt="QR Code">
             </div>
         {% endif %}
-
+        
+        <h2 style="margin-top: 40px;">Today's Attendance</h2>
         {% if records %}
-            <h2 style="margin-top: 40px;">Current Session Attendance</h2>
             <table class="styled-table">
                 <thead>
                     <tr>
@@ -195,7 +195,16 @@
                 </tbody>
             </table>
         {% else %}
-            <p style="text-align: center; margin-top: 20px;">No attendance records for the current session yet.</p>
+            {# New logic to give more info #}
+            {% if all_records_count > 0 %}
+                <p style="text-align: center; margin-top: 20px; color: #7f8c8d;">
+                    No attendance records for today yet. 
+                    <br>
+                    <small>(Total historical records for this subject: {{ all_records_count }})</small>
+                </p>
+            {% else %}
+                <p style="text-align: center; margin-top: 20px; color: #7f8c8d;">No attendance records for this subject yet.</p>
+            {% endif %}
         {% endif %}
     </div>
 </body>

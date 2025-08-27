@@ -155,32 +155,56 @@ def dashboard():
     name = user_info.get("name") if user_info else session['user']
     return render_template('dashboard.html', user=name, role=session.get('role'))
 
-# --------- ADMIN DASHBOARD (FIXED) ----------
+# --------- ADMIN DASHBOARD (REVISED AND FIXED) ----------
 @app.route('/admin_dashboard')
 @admin_required
 def admin_dashboard():
     teacher_email = session['user']
     subject = session.get('subject')
-    todays_records = [] # Changed from `records` to be more specific
+    
+    # --- Start of new debug logic ---
+    print("--- Admin Dashboard Log ---")
+    read_path = f"attendance/{teacher_email.replace('.', ',')}/{subject}"
+    print(f"Attempting to read from Firebase path: {read_path}")
+    
+    all_records = []
+    todays_records = []
+    
     try:
-        # Fetch all records for the subject
         all_data = db.child("attendance").child(teacher_email.replace('.', ',')).child(subject).get().val()
         
         if all_data:
-            # Get today's date as a string in 'YYYY-MM-DD' format
-            today_str = datetime.now().strftime('%Y-%m-%d')
+            print(f"Successfully fetched {len(all_data)} total records from Firebase.")
+            all_records = list(all_data.values()) # Keep a list of all records
             
-            # Filter records to only include those from today
-            for record in all_data.values():
-                if 'timestamp' in record and record['timestamp'].startswith(today_str):
-                    todays_records.append(record)
-                    
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            print(f"Filtering for today's date: {today_str}")
+            
+            for record in all_records:
+                # Check if the record is a dictionary and has a timestamp
+                if isinstance(record, dict) and 'timestamp' in record:
+                    if record.get('timestamp', '').startswith(today_str):
+                        todays_records.append(record)
+                else:
+                    print(f"Skipping malformed record: {record}")
+            
+            print(f"Found {len(todays_records)} records for today.")
+        else:
+            print("No data found at the specified path in Firebase.")
+            
     except Exception as e:
+        print(f"An exception occurred while fetching records: {e}")
         flash(f"Could not fetch attendance records: {e}")
 
+    print("--- End Admin Dashboard Log ---")
     qr_data = session.get("qr_data")
-    # Pass the new, filtered list to the template
-    return render_template('admin_dashboard.html', user=teacher_email, records=todays_records, subject=subject, qr_data=qr_data)
+    
+    return render_template('admin_dashboard.html', 
+                           user=teacher_email, 
+                           records=todays_records, 
+                           all_records_count=len(all_records),
+                           subject=subject, 
+                           qr_data=qr_data)
 
 
 # --------- VIEW ATTENDANCE REPORT ----------
@@ -196,8 +220,8 @@ def view_attendance():
             try:
                 record_date = datetime.fromisoformat(record['timestamp']).strftime('%Y-%m-%d')
                 daily_counts[record_date] += 1
-            except (ValueError, TypeError):
-                continue # Skip records with invalid timestamp
+            except (ValueError, TypeError, AttributeError):
+                continue # Skip records with invalid timestamp or format
     sorted_daily_counts = sorted(daily_counts.items())
     chart_labels = [item[0] for item in sorted_daily_counts]
     chart_data = [item[1] for item in sorted_daily_counts]
@@ -267,7 +291,7 @@ def mark_attendance_qr():
         existing_records = attendance_path.get().val()
         if existing_records:
             for record in existing_records.values():
-                if record.get("email") == student_email and record.get("timestamp", "").startswith(today_str):
+                if isinstance(record, dict) and record.get("email") == student_email and record.get("timestamp", "").startswith(today_str):
                     return jsonify({"message": f"Attendance already marked for {subject} today."}), 409
 
         attendance_path.push({
@@ -296,12 +320,19 @@ def download_attendance():
     data = db.child("attendance").child(teacher_email_db).child(subject).get().val()
 
     columns = ['sol_roll_no', 'name', 'timestamp', 'email', 'latitude', 'longitude']
+    
+    records_list = []
+    if data:
+        # Ensure data is handled correctly if it's a dict
+        records_list = [v for v in data.values() if isinstance(v, dict)]
 
-    if not data:
-        df = pd.DataFrame(columns=columns)
-    else:
-        df = pd.DataFrame(list(data.values()))
-        df = df.reindex(columns=columns)
+    df = pd.DataFrame(records_list)
+    
+    # Ensure all columns exist, even if there's no data
+    for col in columns:
+        if col not in df.columns:
+            df[col] = None
+    df = df[columns]
 
     buffer = io.BytesIO()
     df.to_excel(buffer, index=False, engine='openpyxl')
