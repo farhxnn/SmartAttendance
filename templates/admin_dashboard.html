@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+    <style>
+        /* General Body & Keyframes */
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(120deg, #fdfbfb 0%, #ebedee 100%);
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Dashboard Container */
+        .dashboard-container {
+            width: 100%;
+            max-width: 960px;
+            background: #ffffff;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 20px;
+            margin-bottom: 20px;
+        }
+
+        .dashboard-header h1 {
+            margin: 0;
+            color: #2c3e50;
+            font-size: 24px;
+        }
+
+        /* Button Styles */
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .btn-danger { background-color: #e74c3c; }
+        .btn-danger:hover { background-color: #c0392b; transform: translateY(-2px); }
+
+        .btn-success { background-color: #2ecc71; }
+        .btn-success:hover { background-color: #27ae60; transform: translateY(-2px); }
+
+        .btn-primary { background-color: #3498db; }
+        .btn-primary:hover { background-color: #2980b9; transform: translateY(-2px); }
+
+        .btn-warning { background-color: #f39c12; }
+        .btn-warning:hover { background-color: #e67e22; transform: translateY(-2px); }
+
+        /* Action Section */
+        .action-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+        }
+
+        .action-section h2 {
+            margin-top: 0;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+            display: inline-block;
+        }
+        
+        /* Added spacing for action buttons */
+        .action-buttons > * {
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        /* QR Code Section */
+        .qr-section {
+            text-align: center;
+            animation: fadeIn 1s;
+            margin-bottom: 30px;
+        }
+        .qr-section img {
+            max-width: 250px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        /* Table Styling */
+        .styled-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .styled-table thead tr {
+            background-color: #3498db;
+            color: #ffffff;
+            text-align: left;
+        }
+
+        .styled-table th, .styled-table td {
+            padding: 12px 15px;
+        }
+
+        .styled-table tbody tr {
+            border-bottom: 1px solid #dddddd;
+            transition: background-color 0.3s;
+        }
+
+        .styled-table tbody tr:nth-of-type(even) {
+            background-color: #f3f3f3;
+        }
+
+        .styled-table tbody tr:last-of-type {
+            border-bottom: 2px solid #3498db;
+        }
+
+        .styled-table tbody tr:hover {
+            background-color: #d1e8f7;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+            <h1>Admin Dashboard</h1>
+            <a href="{{ url_for('logout') }}" class="btn btn-danger"><i class="fas fa-sign-out-alt"></i> Logout</a>
+        </div>
+        <p>Welcome, <strong>{{ user }}</strong></p>
+
+        <div class="action-section">
+            <h2>{{ subject }} Class Attendance</h2>
+            <div class="action-buttons">
+                <form method="GET" action="{{ url_for('generate_qr') }}" style="display: inline-block;">
+                    <input type="hidden" name="subject" value="{{ subject }}">
+                    <button type="submit" class="btn btn-success"><i class="fas fa-qrcode"></i> Generate Today's QR</button>
+                </form>
+                <a href="{{ url_for('view_attendance') }}" class="btn btn-primary"><i class="fas fa-chart-bar"></i> View Report</a>
+                <a href="{{ url_for('download_attendance') }}" class="btn btn-warning"><i class="fas fa-file-excel"></i> Download Excel</a>
+            </div>
+        </div>
+
+        {% if qr_data %}
+            <div class="qr-section">
+                <h3>Today's QR Code for "{{ subject }}"</h3>
+                <img src="{{ qr_data }}" alt="QR Code">
+            </div>
+        {% endif %}
+
+        {% if records %}
+            <h2 style="margin-top: 40px;">Current Session Attendance</h2>
+            <table class="styled-table">
+                <thead>
+                    <tr>
+                        <th>Student Email</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for record in records %}
+                        <tr>
+                            <td>{{ record.email }}</td>
+                            <td>{{ record.timestamp }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p style="text-align: center; margin-top: 20px;">No attendance records for the current session yet.</p>
+        {% endif %}
+    </div>
+</body>
+</html>

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance Report - {{ subject }}</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+    <style>
+        /* General Body & Keyframes */
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(120deg, #fdfbfb 0%, #ebedee 100%);
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Dashboard Container */
+        .container {
+            width: 100%;
+            max-width: 960px;
+            background: #ffffff;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            margin: 0;
+            color: #2c3e50;
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        /* Button Styling */
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary { background-color: #3498db; }
+        .btn-primary:hover { background-color: #2980b9; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(52, 152, 219, 0.3); }
+
+        /* Chart Container */
+        .chart-container {
+            position: relative;
+            height: 60vh;
+            animation: fadeIn 1.2s ease-out;
+        }
+        
+        .no-data-message {
+            text-align: center;
+            color: #7f8c8d;
+            font-size: 18px;
+            padding: 40px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Attendance Report: {{ subject }}</h1>
+            <a href="{{ url_for('admin_dashboard') }}" class="btn btn-primary"><i class="fas fa-arrow-left"></i> Back to Dashboard</a>
+        </div>
+
+        <div class="chart-container">
+            {% if chart_labels %}
+                <canvas id="attendanceChart"></canvas>
+            {% else %}
+                <p class="no-data-message">No historical attendance data available to display.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        // Safely get data from Flask/Jinja2
+        const chartLabels = {{ chart_labels | tojson | default('[]') }};
+        const chartData = {{ chart_data | tojson | default('[]') }};
+
+        if (chartLabels.length > 0) {
+            const ctx = document.getElementById('attendanceChart').getContext('2d');
+            const attendanceChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartLabels,
+                    datasets: [{
+                        label: 'Number of Students Present',
+                        data: chartData,
+                        backgroundColor: 'rgba(52, 152, 219, 0.7)',
+                        borderColor: 'rgba(41, 128, 185, 1)',
+                        borderWidth: 1,
+                        borderRadius: 5,
+                        hoverBackgroundColor: 'rgba(41, 128, 185, 0.9)'
+                    }]
+                },
+                options: {
+                    scales: { 
+                        y: { 
+                            beginAtZero: true, 
+                            ticks: { 
+                                stepSize: 1,
+                                font: { family: 'Poppins', size: 14 }
+                            } 
+                        },
+                        x: {
+                            ticks: { font: { family: 'Poppins', size: 14 } }
+                        }
+                    },
+                    plugins: { 
+                        legend: { 
+                            display: true,
+                            position: 'top',
+                            labels: { font: { family: 'Poppins', size: 16 } }
+                        },
+                        tooltip: {
+                            titleFont: { family: 'Poppins', size: 14 },
+                            bodyFont: { family: 'Poppins', size: 12 },
+                            callbacks: {
+                                label: function(context) {
+                                    return `Present: ${context.raw}`;
+                                }
+                            }
+                        }
+                    },
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+        }
+    </script>
+</body>
+</html>

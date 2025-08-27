@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Dashboard</title>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(120deg, #fdfbfb 0%, #ebedee 100%);
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .dashboard-container {
+            width: 100%;
+            max-width: 800px;
+            background: #ffffff;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            animation: fadeIn 0.8s ease-out;
+        }
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .dashboard-header h1 {
+            margin: 0;
+            color: #2c3e50;
+            font-size: 24px;
+        }
+        .btn {
+            padding: 12px 22px;
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .btn-success { background-color: #2ecc71; }
+        .btn-success:hover { background-color: #27ae60; transform: translateY(-3px); box-shadow: 0 6px 20px rgba(46, 204, 113, 0.4); }
+        .btn-danger { background-color: #e74c3c; }
+        .btn-danger:hover { background-color: #c0392b; transform: translateY(-3px); box-shadow: 0 6px 20px rgba(231, 76, 60, 0.4); }
+        .action-section {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .action-section h2 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            color: #34495e;
+        }
+        #status {
+            margin-top: 20px;
+            font-weight: 600;
+            color: #3498db;
+            height: 20px;
+        }
+        #qr-reader-container {
+            margin-top: 20px;
+            display: none;
+        }
+        #qr-reader {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            width: 100%;
+            max-width: 400px;
+            margin: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+            <h1>Welcome, {{ user }}</h1>
+            <a href="{{ url_for('logout') }}" class="btn btn-danger">
+                <i class="fas fa-sign-out-alt"></i> Logout
+            </a>
+        </div>
+
+        <div class="action-section">
+            <h2>Mark Your Attendance</h2>
+            <button id="scanQrBtn" class="btn btn-success">
+                <i class="fas fa-qrcode"></i> Scan QR Code with Location
+            </button>
+            <p id="status"></p>
+        </div>
+
+        <div id="qr-reader-container">
+             <div id="qr-reader"></div>
+        </div>
+    </div>
+
+    <script>
+        const scanQrBtn = document.getElementById("scanQrBtn");
+        const statusEl = document.getElementById("status");
+        const qrReaderContainer = document.getElementById("qr-reader-container");
+        let html5QrCode;
+        let currentPosition = null;
+
+        // Function to get location
+        function getLocation() {
+            return new Promise((resolve, reject) => {
+                if (!navigator.geolocation) {
+                    reject("Geolocation is not supported by your browser.");
+                    return;
+                }
+                statusEl.textContent = "Requesting location...";
+                navigator.geolocation.getCurrentPosition(resolve, () => {
+                    reject("Permission denied or unable to retrieve location.");
+                });
+            });
+        }
+
+        // --- QR Code Scanner with Geolocation ---
+        scanQrBtn.addEventListener("click", async function() {
+            if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop().then(() => {
+                    qrReaderContainer.style.display = 'none';
+                    statusEl.textContent = "Scanner stopped.";
+                });
+                return;
+            }
+            
+            try {
+                const position = await getLocation();
+                currentPosition = position;
+                statusEl.textContent = "Location acquired. Please scan the QR code.";
+                qrReaderContainer.style.display = 'block';
+
+                if (!html5QrCode) {
+                    html5QrCode = new Html5Qrcode("qr-reader");
+                }
+
+                html5QrCode.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: { width: 250, height: 250 } },
+                    (decodedText, decodedResult) => {
+                        // Handle successful scan
+                        if (html5QrCode.isScanning) {
+                            html5QrCode.stop();
+                        }
+                        statusEl.textContent = "QR Code detected. Verifying...";
+                        
+                        fetch("/mark_attendance_qr", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ 
+                                qr_data: decodedText,
+                                latitude: currentPosition.coords.latitude,
+                                longitude: currentPosition.coords.longitude
+                            })
+                        })
+                        .then(response => response.json())
+                        .then(result => {
+                            statusEl.textContent = result.message;
+                            qrReaderContainer.style.display = 'none';
+                        })
+                        .catch(error => {
+                            statusEl.textContent = "Error marking attendance.";
+                            console.error(error);
+                        });
+                    },
+                    (errorMessage) => {
+                        // This is called when no QR is found, can be ignored
+                    }
+                ).catch((err) => {
+                    statusEl.textContent = "Could not start QR scanner.";
+                    console.error(err);
+                });
+
+            } catch (error) {
+                statusEl.textContent = error;
+            }
+        });
+    </script>
+</body>
+</html>
