@@ -155,23 +155,32 @@ def dashboard():
     name = user_info.get("name") if user_info else session['user']
     return render_template('dashboard.html', user=name, role=session.get('role'))
 
-# --------- ADMIN DASHBOARD ----------
+# --------- ADMIN DASHBOARD (FIXED) ----------
 @app.route('/admin_dashboard')
 @admin_required
 def admin_dashboard():
     teacher_email = session['user']
     subject = session.get('subject')
-    records = []
-
+    todays_records = [] # Changed from `records` to be more specific
     try:
-        data = db.child("attendance").child(teacher_email.replace('.', ',')).child(subject).get().val()
-        if data:
-            records = list(data.values())
+        # Fetch all records for the subject
+        all_data = db.child("attendance").child(teacher_email.replace('.', ',')).child(subject).get().val()
+        
+        if all_data:
+            # Get today's date as a string in 'YYYY-MM-DD' format
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            
+            # Filter records to only include those from today
+            for record in all_data.values():
+                if 'timestamp' in record and record['timestamp'].startswith(today_str):
+                    todays_records.append(record)
+                    
     except Exception as e:
         flash(f"Could not fetch attendance records: {e}")
 
     qr_data = session.get("qr_data")
-    return render_template('admin_dashboard.html', user=teacher_email, records=records, subject=subject, qr_data=qr_data)
+    # Pass the new, filtered list to the template
+    return render_template('admin_dashboard.html', user=teacher_email, records=todays_records, subject=subject, qr_data=qr_data)
 
 
 # --------- VIEW ATTENDANCE REPORT ----------
@@ -196,11 +205,10 @@ def view_attendance():
     return render_template('view_attendance.html', subject=subject, chart_labels=chart_labels, chart_data=chart_data)
 
 
-# --------- GENERATE QR CODE (FIXED) ----------
+# --------- GENERATE QR CODE ----------
 @app.route('/generate_qr')
 @admin_required
 def generate_qr():
-    # IMPROVEMENT: Get subject from the session, it's more reliable
     subject = session.get('subject') 
     if not subject:
         flash("Could not find subject for your session.")
@@ -216,13 +224,12 @@ def generate_qr():
     
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
-    # FIX: Corrected b64encode from b664encode
     qr_b64 = base64.b64encode(buffer.getvalue()).decode('ascii')
     
     session["qr_data"] = "data:image/png;base64," + qr_b64
     return redirect(url_for('admin_dashboard'))
 
-# --------- MARK ATTENDANCE VIA QR (IMPROVED) ----------
+# --------- MARK ATTENDANCE VIA QR ----------
 @app.route('/mark_attendance_qr', methods=['POST'])
 @student_required
 def mark_attendance_qr():
@@ -256,15 +263,13 @@ def mark_attendance_qr():
 
         attendance_path = db.child("attendance").child(teacher_email_db).child(subject)
         
-        # Check if attendance was already marked for this subject today
         today_str = datetime.now().strftime('%Y-%m-%d')
         existing_records = attendance_path.get().val()
         if existing_records:
             for record in existing_records.values():
                 if record.get("email") == student_email and record.get("timestamp", "").startswith(today_str):
-                    return jsonify({"message": f"Attendance already marked for {subject} today."}), 409 # 409 Conflict
+                    return jsonify({"message": f"Attendance already marked for {subject} today."}), 409
 
-        # Push new attendance record
         attendance_path.push({
             "name": student_name,
             "sol_roll_no": student_sol_roll_no,
