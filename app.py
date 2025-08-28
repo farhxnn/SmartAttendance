@@ -11,8 +11,8 @@ import pandas as pd
 from functools import wraps
 from collections import defaultdict
 import os
-import sys
-import time  # Add time import for debugging
+import sys # Import sys for flushing output
+import json # Import json for parsing firebase errors
 
 # ------------------ CONFIG ------------------
 CAMPUS_LAT = 28.72353
@@ -63,17 +63,13 @@ def distance(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     return R * c
 
-def get_teacher_db_key(email):
-    """Consistent helper to convert email to database key"""
-    return email.replace('.', ',')
-
 # ------------------ ROUTES ------------------
 
 @app.route('/')
 def home():
     return redirect(url_for('login'))
 
-# --------- STUDENT SIGNUP ----------
+# --------- STUDENT SIGNUP (FIXED) ----------
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if request.method == 'POST':
@@ -90,16 +86,19 @@ def signup():
             return redirect(url_for('signup'))
 
         try:
-            auth.create_user_with_email_and_password(email, password)
-            db.child("users").child(get_teacher_db_key(email)).set({
+            user = auth.create_user_with_email_and_password(email, password)
+            id_token = user['idToken']
+            db.child("users").child(email.replace('.', ',')).set({
                 "role": "student",
                 "name": name,
                 "sol_roll_no": sol_roll_no,
                 "dob": dob,
                 "phone_no": phone_no
-            })
+            }, id_token)
+            
             auth.sign_in_with_email_and_password(email, password)
             session['user'] = email
+            session['idToken'] = id_token
             session['role'] = "student"
             session.permanent = True
             flash("Signup successful! You are now logged in.")
@@ -110,7 +109,7 @@ def signup():
 
     return render_template('signup.html')
 
-# --------- STUDENT LOGIN ----------
+# --------- STUDENT LOGIN (DEFINITIVE FIX) ----------
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -122,14 +121,33 @@ def login():
             return redirect(url_for('admin_login'))
 
         try:
-            auth.sign_in_with_email_and_password(email, password)
+            user = auth.sign_in_with_email_and_password(email, password)
+            id_token = user['idToken']
+            
             session['user'] = email
+            session['idToken'] = id_token
             session.permanent = True
-            user_info = db.child("users").child(get_teacher_db_key(email)).get().val()
-            session['role'] = user_info.get("role") if user_info else "student"
+            
+            user_info = db.child("users").child(email.replace('.', ',')).get(id_token).val()
+            
+            session['role'] = user_info.get("role") if user_info else 'student'
+
             return redirect(url_for('dashboard'))
         except Exception as e:
-            flash("Invalid credentials. Try again.")
+            print("\n--- LOGIN ERROR ---", flush=True)
+            try:
+                error_json = e.args[1]
+                error_message = json.loads(error_json)['error']['message']
+                print(f"Firebase Auth Error: {error_message}", flush=True)
+                if "INVALID_LOGIN_CREDENTIALS" in error_message or "EMAIL_NOT_FOUND" in error_message:
+                     flash("Invalid email or password. Please try again.")
+                else:
+                    flash("An error occurred. Please check the logs.")
+            except (IndexError, KeyError, json.JSONDecodeError):
+                print(f"An unexpected error occurred: {e}", flush=True)
+                flash("An unexpected error occurred. Please try again.")
+            print("--- END LOGIN ERROR ---\n", flush=True)
+            
             return redirect(url_for('login'))
 
     return render_template('login.html')
@@ -157,70 +175,41 @@ def admin_login():
 @app.route('/dashboard')
 @student_required
 def dashboard():
-    user_info = db.child("users").child(get_teacher_db_key(session['user'])).get().val()
+    id_token = session.get('idToken')
+    user_info = db.child("users").child(session['user'].replace('.', ',')).get(id_token).val()
     name = user_info.get("name") if user_info else session['user']
     return render_template('dashboard.html', user=name, role=session.get('role'))
 
-# --------- ADMIN DASHBOARD (FIXED VERSION) ----------
+# --------- ADMIN DASHBOARD (REAL-TIME UPDATE SUPPORT) ----------
+
 @app.route('/admin_dashboard')
 @admin_required
 def admin_dashboard():
+    # This function now sends the necessary config to the frontend for real-time updates
+    firebase_config = {
+        "apiKey": os.environ.get("FIREBASE_API_KEY"),
+        "authDomain": os.environ.get("FIREBASE_AUTH_DOMAIN"),
+        "databaseURL": os.environ.get("FIREBASE_DATABASE_URL"),
+        "projectId": os.environ.get("FIREBASE_PROJECT_ID"),
+        "storageBucket": os.environ.get("FIREBASE_STORAGE_BUCKET"),
+        "messagingSenderId": os.environ.get("FIREBASE_MESSAGING_SENDER_ID"),
+        "appId": os.environ.get("FIREBASE_APP_ID")
+    }
+    
     teacher_email = session['user']
+    # Generate the database key here
+    teacher_email_db_key = teacher_email.replace('.', ',')
     subject = session.get('subject')
-    
-    print(f"\n--- ADMIN DASHBOARD LOG [{datetime.now()}] ---", flush=True)
-    print(f"Teacher: {teacher_email}, Subject: {subject}", flush=True)
-    
-    teacher_db_key = get_teacher_db_key(teacher_email)
-    read_path = f"attendance/{subject}/{teacher_db_key}"
-    print(f"Reading from Firebase path: {read_path}", flush=True)
-    
-    all_records = []
-    todays_records = []
-    
-    try:
-        # Add a small delay to ensure Firebase write has propagated
-        time.sleep(0.5)
-        
-        # Fetch data with error handling
-        firebase_ref = db.child("attendance").child(subject).child(teacher_db_key)
-        all_data = firebase_ref.get().val()
-        
-        print(f"Raw Firebase response: {type(all_data)}, {all_data is not None}", flush=True)
-        
-        if all_data and isinstance(all_data, dict):
-            print(f"SUCCESS: Found {len(all_data)} total records", flush=True)
-            all_records = [record for record in all_data.values() if isinstance(record, dict)]
-            
-            today_str = datetime.now().strftime('%Y-%m-%d')
-            print(f"Filtering for today's date: {today_str}", flush=True)
-            
-            for record in all_records:
-                if 'timestamp' in record:
-                    record_timestamp = record.get('timestamp', '')
-                    print(f"Checking record timestamp: {record_timestamp[:10] if len(record_timestamp) >= 10 else record_timestamp}", flush=True)
-                    if record_timestamp.startswith(today_str):
-                        todays_records.append(record)
-                        print(f"Added today's record: {record.get('name', 'Unknown')}", flush=True)
-            
-            print(f"Found {len(todays_records)} records for today", flush=True)
-        else:
-            print("INFO: No attendance data found or invalid format", flush=True)
-            
-    except Exception as e:
-        print(f"ERROR: Exception in admin_dashboard: {e}", flush=True)
-        flash(f"Could not fetch attendance records: {e}")
-
-    print("--- END ADMIN DASHBOARD LOG ---\n", flush=True)
-    
     qr_data = session.get("qr_data")
     
     return render_template('admin_dashboard.html', 
                            user=teacher_email, 
-                           records=todays_records, 
-                           all_records_count=len(all_records),
+                           # Pass the generated key to the template
+                           teacher_email_db_key=teacher_email_db_key, 
                            subject=subject, 
-                           qr_data=qr_data)
+                           qr_data=qr_data,
+                           firebase_config=json.dumps(firebase_config)) # Pass config as a JSON string
+
 
 # --------- VIEW ATTENDANCE REPORT ----------
 @app.route('/view_attendance')
@@ -228,25 +217,22 @@ def admin_dashboard():
 def view_attendance():
     teacher_email = session['user']
     subject = session.get('subject')
-    teacher_db_key = get_teacher_db_key(teacher_email)
-    
-    all_records = db.child("attendance").child(subject).child(teacher_db_key).get().val()
+    all_records = db.child("attendance").child(subject).child(teacher_email.replace('.', ',')).get().val()
     daily_counts = defaultdict(int)
-    
     if all_records and isinstance(all_records, dict):
         for record in all_records.values():
             try:
-                if isinstance(record, dict) and 'timestamp' in record:
+                if isinstance(record, dict):
                     record_date = datetime.fromisoformat(record['timestamp']).strftime('%Y-%m-%d')
                     daily_counts[record_date] += 1
             except (ValueError, TypeError, AttributeError, KeyError):
                 continue
-                
     sorted_daily_counts = sorted(daily_counts.items())
     chart_labels = [item[0] for item in sorted_daily_counts]
     chart_data = [item[1] for item in sorted_daily_counts]
     
     return render_template('view_attendance.html', subject=subject, chart_labels=chart_labels, chart_data=chart_data)
+
 
 # --------- GENERATE QR CODE ----------
 @app.route('/generate_qr')
@@ -257,8 +243,8 @@ def generate_qr():
         flash("Could not find subject for your session.")
         return redirect(url_for('admin_dashboard'))
 
-    teacher_email = session['user']
-    qr_text = f"{teacher_email}|{subject}"
+    teacher_email_for_qr = session['user']
+    qr_text = f"{teacher_email_for_qr}|{subject}"
     
     qr = qrcode.QRCode(box_size=10, border=4)
     qr.add_data(qr_text)
@@ -270,74 +256,54 @@ def generate_qr():
     qr_b64 = base64.b64encode(buffer.getvalue()).decode('ascii')
     
     session["qr_data"] = "data:image/png;base64," + qr_b64
-    flash("QR code generated successfully!")
     return redirect(url_for('admin_dashboard'))
 
-# --------- MARK ATTENDANCE VIA QR (FIXED VERSION) ----------
+# --------- MARK ATTENDANCE VIA QR (FIXED) ----------
 @app.route('/mark_attendance_qr', methods=['POST'])
 @student_required
 def mark_attendance_qr():
-    print(f"\n--- MARK ATTENDANCE LOG [{datetime.now()}] ---", flush=True)
-    
     data = request.get_json()
+    id_token = session.get('idToken') # Get the user's token from the session
+
+    if not id_token:
+        return jsonify({"message": "Authentication error. Please log in again."}), 401
+
     if not data or "qr_data" not in data or "latitude" not in data or "longitude" not in data:
-        print("ERROR: Missing required data in request", flush=True)
         return jsonify({"message": "Missing required location or QR data."}), 400
 
-    try:
-        lat = float(data.get("latitude"))
-        lon = float(data.get("longitude"))
-        print(f"Student location: {lat}, {lon}", flush=True)
-    except (ValueError, TypeError):
-        print("ERROR: Invalid latitude/longitude values", flush=True)
-        return jsonify({"message": "Invalid location data."}), 400
+    lat = float(data.get("latitude"))
+    lon = float(data.get("longitude"))
 
-    # Check campus proximity
-    campus_distance = distance(lat, lon, CAMPUS_LAT, CAMPUS_LON)
-    print(f"Distance from campus: {campus_distance:.2f}m (limit: {CAMPUS_RADIUS_METERS}m)", flush=True)
-    
-    if campus_distance > CAMPUS_RADIUS_METERS:
-        print("ERROR: Student outside campus", flush=True)
+    if distance(lat, lon, CAMPUS_LAT, CAMPUS_LON) > CAMPUS_RADIUS_METERS:
         return jsonify({"message": "You are outside the campus. Attendance not marked."}), 403
 
-    # Parse QR code
     try:
         qr_data = data.get("qr_data")
         teacher_email, subject = qr_data.split("|")
-        teacher_db_key = get_teacher_db_key(teacher_email)
-        print(f"QR parsed - Teacher: {teacher_email}, Subject: {subject}", flush=True)
-    except (ValueError, TypeError, AttributeError):
-        print("ERROR: Invalid QR code format", flush=True)
+        teacher_email_db = teacher_email.replace('.', ',')
+    except (ValueError, TypeError):
         return jsonify({"message": "Invalid QR code format."}), 400
 
     try:
         student_email = session['user']
-        student_db_key = get_teacher_db_key(student_email)
+        student_email_db_key = student_email.replace('.', ',')
         
-        # Get student details
-        user_details = db.child("users").child(student_db_key).get().val()
+        user_details = db.child("users").child(student_email_db_key).get(id_token).val()
         if not user_details or "name" not in user_details or "sol_roll_no" not in user_details:
-            print("ERROR: Incomplete student profile", flush=True)
             return jsonify({"message": "Your profile is incomplete. Cannot mark attendance."}), 404
             
         student_name = user_details["name"]
         student_sol_roll_no = user_details["sol_roll_no"]
-        print(f"Student details - Name: {student_name}, Roll: {student_sol_roll_no}", flush=True)
 
-        # Check for duplicate attendance today
-        attendance_ref = db.child("attendance").child(subject).child(teacher_db_key)
-        today_str = datetime.now().strftime('%Y-%m-%d')
+        attendance_path = db.child("attendance").child(subject).child(teacher_email_db)
         
-        existing_records = attendance_ref.get().val()
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        existing_records = attendance_path.get(id_token).val()
         if existing_records and isinstance(existing_records, dict):
             for record in existing_records.values():
-                if (isinstance(record, dict) and 
-                    record.get("email") == student_email and 
-                    record.get("timestamp", "").startswith(today_str)):
-                    print(f"WARNING: Duplicate attendance attempt for {student_email}", flush=True)
+                if isinstance(record, dict) and record.get("email") == student_email and record.get("timestamp", "").startswith(today_str):
                     return jsonify({"message": f"Attendance already marked for {subject} today."}), 409
 
-        # Create new attendance record
         new_record = {
             "name": student_name,
             "sol_roll_no": student_sol_roll_no,
@@ -345,21 +311,13 @@ def mark_attendance_qr():
             "timestamp": datetime.now().isoformat(),
             "latitude": lat,
             "longitude": lon,
-            "inside_campus": True,
-            "subject": subject,  # Add subject for clarity
-            "teacher_email": teacher_email  # Add teacher for tracking
+            "inside_campus": True
         }
-        
-        # Push to Firebase
-        push_result = attendance_ref.push(new_record)
-        print(f"SUCCESS: Attendance record created with key: {push_result['name']}", flush=True)
-        print(f"Record details: {new_record}", flush=True)
+        attendance_path.push(new_record, id_token) # Use the token to authenticate the write
 
-        print("--- END MARK ATTENDANCE LOG ---\n", flush=True)
         return jsonify({"message": f"Attendance marked successfully for {subject}!"})
-        
     except Exception as e:
-        print(f"ERROR: Exception during attendance marking: {e}", flush=True)
+        print(f"Error during QR attendance marking: {e}", flush=True)
         return jsonify({"message": "A server error occurred while saving the record."}), 500
 
 # --------- DOWNLOAD ATTENDANCE EXCEL ----------
@@ -368,9 +326,9 @@ def mark_attendance_qr():
 def download_attendance():
     teacher_email = session.get('user')
     subject = session.get('subject')
-    teacher_db_key = get_teacher_db_key(teacher_email)
+    teacher_email_db = teacher_email.replace('.', ',')
     
-    data = db.child("attendance").child(subject).child(teacher_db_key).get().val()
+    data = db.child("attendance").child(subject).child(teacher_email_db).get().val()
 
     columns = ['sol_roll_no', 'name', 'timestamp', 'email', 'latitude', 'longitude']
     
@@ -380,7 +338,6 @@ def download_attendance():
 
     df = pd.DataFrame(records_list)
     
-    # Ensure all required columns exist
     for col in columns:
         if col not in df.columns:
             df[col] = None
@@ -392,7 +349,8 @@ def download_attendance():
 
     return send_file(buffer, as_attachment=True,
                      download_name=f"{subject}_attendance_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
-                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                     mimetype="application/vnd.openxmlformats-officedocument.sheet")
+
 
 # --------- LOGOUT ----------
 @app.route('/logout')
@@ -400,183 +358,6 @@ def logout():
     session.clear()
     flash("Logged out successfully.")
     return redirect(url_for('login'))
-
-# Add this route to your app.py for debugging
-@app.route('/debug_attendance')
-@admin_required  
-def debug_attendance():
-    """Debug route to inspect Firebase data structure"""
-    teacher_email = session['user']
-    subject = session.get('subject')
-    teacher_db_key = teacher_email.replace('.', ',')
-    
-    debug_info = {
-        'session_data': {
-            'user': session.get('user'),
-            'role': session.get('role'), 
-            'subject': session.get('subject')
-        },
-        'paths_checked': [],
-        'data_found': {}
-    }
-    
-    # Check multiple possible paths where data might be stored
-    possible_paths = [
-        f"attendance/{subject}/{teacher_db_key}",
-        f"attendance/{teacher_db_key}/{subject}", 
-        f"attendance/{teacher_db_key}",
-        "attendance"
-    ]
-    
-    for path_parts in [path.split('/') for path in possible_paths]:
-        try:
-            ref = db.child(path_parts[0])
-            current_path = path_parts[0]
-            
-            for part in path_parts[1:]:
-                ref = ref.child(part)
-                current_path += f"/{part}"
-            
-            data = ref.get().val()
-            debug_info['paths_checked'].append(current_path)
-            
-            if data:
-                debug_info['data_found'][current_path] = {
-                    'type': str(type(data)),
-                    'keys': list(data.keys()) if isinstance(data, dict) else None,
-                    'count': len(data) if isinstance(data, (dict, list)) else None,
-                    'sample': str(data)[:500] + '...' if len(str(data)) > 500 else str(data)
-                }
-        except Exception as e:
-            debug_info['data_found'][current_path] = f"Error: {e}"
-    
-    # Also check the entire attendance structure
-    try:
-        all_attendance = db.child("attendance").get().val()
-        debug_info['full_attendance_structure'] = str(all_attendance)[:1000] + '...' if all_attendance and len(str(all_attendance)) > 1000 else str(all_attendance)
-    except Exception as e:
-        debug_info['full_attendance_structure'] = f"Error: {e}"
-    
-    return jsonify(debug_info)
-
-# Add this route to test Firebase writes directly
-@app.route('/test_write')
-@admin_required
-def test_write():
-    """Test Firebase write operation"""
-    teacher_email = session['user']
-    subject = session.get('subject')
-    teacher_db_key = teacher_email.replace('.', ',')
-    
-    test_record = {
-        'name': 'Test Student',
-        'sol_roll_no': '23-1-11-000001',
-        'email': 'test@example.com',
-        'timestamp': datetime.now().isoformat(),
-        'test_write': True
-    }
-    
-    try:
-        # Try writing to the expected path
-        path = f"attendance/{subject}/{teacher_db_key}"
-        result = db.child("attendance").child(subject).child(teacher_db_key).push(test_record)
-        
-        return jsonify({
-            'success': True,
-            'path': path,
-            'result_key': result.get('name', 'No key returned'),
-            'test_record': test_record
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'path': path
-        })
-
-# Enhanced JavaScript for the dashboard to show more debugging info
-dashboard_debug_js = """
-<script>
-// Add this to your dashboard.html in the existing script section
-
-// Enhanced error handling for the attendance marking
-scanQrBtn.addEventListener("click", async function() {
-    if (html5QrCode && html5QrCode.isScanning) {
-        html5QrCode.stop().then(() => {
-            qrReaderContainer.style.display = 'none';
-            statusEl.textContent = "Scanner stopped.";
-        });
-        return;
-    }
-    
-    try {
-        const position = await getLocation();
-        currentPosition = position;
-        statusEl.textContent = "Location acquired. Please scan the QR code.";
-        qrReaderContainer.style.display = 'block';
-
-        if (!html5QrCode) {
-            html5QrCode = new Html5Qrcode("qr-reader");
-        }
-
-        html5QrCode.start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 250 } },
-            (decodedText, decodedResult) => {
-                console.log("QR Code scanned:", decodedText); // DEBUG LOG
-                
-                if (html5QrCode.isScanning) {
-                    html5QrCode.stop();
-                }
-                statusEl.textContent = "QR Code detected. Verifying...";
-                
-                const requestData = { 
-                    qr_data: decodedText,
-                    latitude: currentPosition.coords.latitude,
-                    longitude: currentPosition.coords.longitude
-                };
-                
-                console.log("Sending request:", requestData); // DEBUG LOG
-                
-                fetch("/mark_attendance_qr", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(requestData)
-                })
-                .then(response => {
-                    console.log("Response status:", response.status); // DEBUG LOG
-                    return response.json();
-                })
-                .then(result => {
-                    console.log("Response data:", result); // DEBUG LOG
-                    statusEl.textContent = result.message;
-                    qrReaderContainer.style.display = 'none';
-                    
-                    // If successful, show additional info
-                    if (result.message.includes("successfully")) {
-                        statusEl.innerHTML = result.message + "<br><small>Check browser console for details.</small>";
-                    }
-                })
-                .catch(error => {
-                    console.error("Fetch error:", error); // DEBUG LOG
-                    statusEl.textContent = "Error marking attendance: " + error.message;
-                });
-            },
-            (errorMessage) => {
-                // This is called when no QR is found, can be ignored
-            }
-        ).catch((err) => {
-            console.error("QR Scanner error:", err); // DEBUG LOG
-            statusEl.textContent = "Could not start QR scanner.";
-        });
-
-    } catch (error) {
-        console.error("Location error:", error); // DEBUG LOG
-        statusEl.textContent = error;
-    }
-});
-</script>
-"""
 
 # ------------------ RUN APP ------------------
 if __name__ == '__main__':
