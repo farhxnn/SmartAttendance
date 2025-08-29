@@ -295,6 +295,7 @@ def mark_attendance_qr():
         student_name = user_details["name"]
         student_sol_roll_no = user_details["sol_roll_no"]
 
+        # This is the CORRECT path for writing attendance data.
         attendance_path = db.child("attendance").child(subject).child(teacher_email_db)
         
         today_str = datetime.now().strftime('%Y-%m-%d')
@@ -313,6 +314,7 @@ def mark_attendance_qr():
             "longitude": lon,
             "inside_campus": True
         }
+        # This is the CORRECT call to save the record under the attendance_path.
         attendance_path.push(new_record, id_token) # Use the token to authenticate the write
 
         return jsonify({"message": f"Attendance marked successfully for {subject}!"})
