@@ -196,8 +196,8 @@
         <p id="no-records-message">Loading attendance records...</p>
     </div>
 
-    <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
     <script>
@@ -206,55 +206,70 @@
             const firebaseConfig = JSON.parse('{{ firebase_config | safe }}');
             firebase.initializeApp(firebaseConfig);
             const database = firebase.database();
+            const auth = firebase.auth(); // Initialize Auth service
 
-            // 2. Get necessary data from the template
-            const subject = '{{ subject }}';
-            // Use the database key directly from the backend
-            const teacherEmailDbKey = '{{ teacher_email_db_key | safe }}'; 
+            // --- Credentials for the service user created in Firebase Console ---
+            // NOTE: For better security, avoid hardcoding credentials. 
+            // Consider using a backend endpoint to provide a custom token instead.
+            const ADMIN_EMAIL = "admin-reader@your-app.com"; // <-- CHANGE THIS
+            const ADMIN_PASSWORD = "adminreader";     // <-- CHANGE THIS
 
-            // 3. Define the path to listen to in the database
-            const attendanceRef = database.ref(`attendance/${subject}/${teacherEmailDbKey}`);
+            // 2. Sign in to Firebase before listening for data
+            auth.signInWithEmailAndPassword(ADMIN_EMAIL, ADMIN_PASSWORD)
+                .then((userCredential) => {
+                    console.log("Firebase authenticated successfully for real-time updates.");
+                    // If sign-in is successful, set up the database listener
+                    setupDatabaseListener();
+                })
+                .catch((error) => {
+                    console.error("Firebase authentication failed:", error);
+                    const noRecordsMessage = document.getElementById('no-records-message');
+                    noRecordsMessage.textContent = 'Error: Could not connect to the database for real-time updates.';
+                    noRecordsMessage.style.display = 'block';
+                });
 
-            const tableBody = document.getElementById('attendance-table-body');
-            const noRecordsMessage = document.getElementById('no-records-message');
 
-            // 4. Set up the real-time listener
-            attendanceRef.on('value', (snapshot) => {
-                const allData = snapshot.val();
-                const todaysRecords = [];
-                
-                if (allData) {
-                    const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD format
+            function setupDatabaseListener() {
+                // 3. Get necessary data from the template
+                const subject = '{{ subject }}';
+                const teacherEmailDbKey = '{{ teacher_email_db_key | safe }}'; 
+
+                // 4. Define the path to listen to in the database
+                const attendanceRef = database.ref(`attendance/${subject}/${teacherEmailDbKey}`);
+                const tableBody = document.getElementById('attendance-table-body');
+                const noRecordsMessage = document.getElementById('no-records-message');
+
+                // 5. Set up the real-time listener with an error callback for debugging
+                attendanceRef.on('value', (snapshot) => {
+                    const allData = snapshot.val();
+                    const todaysRecords = [];
                     
-                    // Loop through the records and filter for today
-                    for (const key in allData) {
-                        const record = allData[key];
-                        if (record.timestamp && record.timestamp.startsWith(todayStr)) {
-                            todaysRecords.push(record);
+                    if (allData) {
+                        const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD format
+                        for (const key in allData) {
+                            const record = allData[key];
+                            if (record.timestamp && record.timestamp.startsWith(todayStr)) {
+                                todaysRecords.push(record);
+                            }
                         }
                     }
-                }
-
-                // 5. Update the HTML table
-                updateTable(todaysRecords);
-            });
+                    updateTable(todaysRecords);
+                }, (error) => {
+                    // This error callback will catch permission denied errors
+                    console.error("Firebase read failed:", error);
+                    noRecordsMessage.textContent = 'Error: Permission denied to read attendance data.';
+                    noRecordsMessage.style.display = 'block';
+                });
+            }
 
             function updateTable(records) {
-                // Clear the current table
                 tableBody.innerHTML = '';
-
                 if (records && records.length > 0) {
                     noRecordsMessage.style.display = 'none';
-                    
-                    // Sort records by timestamp, most recent first
                     records.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-                    // Add a new row for each record
                     records.forEach(record => {
                         const row = document.createElement('tr');
-                        
                         const time = new Date(record.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
                         row.innerHTML = `
                             <td>${record.sol_roll_no}</td>
                             <td>${record.name}</td>
@@ -263,7 +278,6 @@
                         tableBody.appendChild(row);
                     });
                 } else {
-                    // Show the "no records" message
                     noRecordsMessage.textContent = 'No attendance records for today yet.';
                     noRecordsMessage.style.display = 'block';
                 }
