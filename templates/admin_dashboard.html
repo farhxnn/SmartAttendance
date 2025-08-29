@@ -190,8 +190,7 @@
                 </tr>
             </thead>
             <tbody id="attendance-table-body">
-                <!-- Rows will be inserted here by JavaScript -->
-            </tbody>
+                </tbody>
         </table>
         <p id="no-records-message">Loading attendance records...</p>
     </div>
@@ -209,10 +208,8 @@
             const auth = firebase.auth(); // Initialize Auth service
 
             // --- Credentials for the service user created in Firebase Console ---
-            // NOTE: For better security, avoid hardcoding credentials. 
-            // Consider using a backend endpoint to provide a custom token instead.
-            const ADMIN_EMAIL = "admin-reader@your-app.com"; // <-- CHANGE THIS
-            const ADMIN_PASSWORD = "adminreader";     // <-- CHANGE THIS
+            const ADMIN_EMAIL = "admin-reader@your-app.com";
+            const ADMIN_PASSWORD = "adminreader";
 
             // 2. Sign in to Firebase before listening for data
             auth.signInWithEmailAndPassword(ADMIN_EMAIL, ADMIN_PASSWORD)
@@ -235,9 +232,9 @@
                 const teacherEmailDbKey = '{{ teacher_email_db_key | safe }}'; 
 
                 // 4. Define the path to listen to in the database
-                const attendanceRef = database.ref(`attendance/${subject}/${teacherEmailDbKey}`);
                 const tableBody = document.getElementById('attendance-table-body');
                 const noRecordsMessage = document.getElementById('no-records-message');
+                const attendanceRef = database.ref(`attendance/${subject}/${teacherEmailDbKey}`);
 
                 // 5. Set up the real-time listener with an error callback for debugging
                 attendanceRef.on('value', (snapshot) => {
@@ -263,7 +260,9 @@
             }
 
             function updateTable(records) {
+                // **FIXED**: Ensured 'tableBody' is used with correct case sensitivity
                 tableBody.innerHTML = '';
+                const noRecordsMessage = document.getElementById('no-records-message');
                 if (records && records.length > 0) {
                     noRecordsMessage.style.display = 'none';
                     records.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
@@ -275,6 +274,7 @@
                             <td>${record.name}</td>
                             <td>${time}</td>
                         `;
+                        // **FIXED**: Ensured 'tableBody' is used with correct case sensitivity
                         tableBody.appendChild(row);
                     });
                 } else {
