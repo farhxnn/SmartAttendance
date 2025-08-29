@@ -199,17 +199,21 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
-    <script>
+<script>
         document.addEventListener('DOMContentLoaded', function() {
             // 1. Initialize Firebase
             const firebaseConfig = JSON.parse('{{ firebase_config | safe }}');
             firebase.initializeApp(firebaseConfig);
             const database = firebase.database();
-            const auth = firebase.auth(); // Initialize Auth service
+            const auth = firebase.auth();
 
-            // --- Credentials for the service user created in Firebase Console ---
-            const ADMIN_EMAIL = "admin-reader@your-app.com";
-            const ADMIN_PASSWORD = "adminreader";
+            // --- Credentials for the service user ---
+            const ADMIN_EMAIL = "admin-reader@your-app.com"; // <-- Ensure this is your correct service user
+            const ADMIN_PASSWORD = "adminreader";     // <-- Ensure this is the correct password
+
+            // **FIX**: Declare tableBody and noRecordsMessage here so all functions can access them
+            const tableBody = document.getElementById('attendance-table-body');
+            const noRecordsMessage = document.getElementById('no-records-message');
 
             // 2. Sign in to Firebase before listening for data
             auth.signInWithEmailAndPassword(ADMIN_EMAIL, ADMIN_PASSWORD)
@@ -220,11 +224,9 @@
                 })
                 .catch((error) => {
                     console.error("Firebase authentication failed:", error);
-                    const noRecordsMessage = document.getElementById('no-records-message');
                     noRecordsMessage.textContent = 'Error: Could not connect to the database for real-time updates.';
                     noRecordsMessage.style.display = 'block';
                 });
-
 
             function setupDatabaseListener() {
                 // 3. Get necessary data from the template
@@ -232,11 +234,9 @@
                 const teacherEmailDbKey = '{{ teacher_email_db_key | safe }}'; 
 
                 // 4. Define the path to listen to in the database
-                const tableBody = document.getElementById('attendance-table-body');
-                const noRecordsMessage = document.getElementById('no-records-message');
                 const attendanceRef = database.ref(`attendance/${subject}/${teacherEmailDbKey}`);
 
-                // 5. Set up the real-time listener with an error callback for debugging
+                // 5. Set up the real-time listener
                 attendanceRef.on('value', (snapshot) => {
                     const allData = snapshot.val();
                     const todaysRecords = [];
@@ -252,7 +252,6 @@
                     }
                     updateTable(todaysRecords);
                 }, (error) => {
-                    // This error callback will catch permission denied errors
                     console.error("Firebase read failed:", error);
                     noRecordsMessage.textContent = 'Error: Permission denied to read attendance data.';
                     noRecordsMessage.style.display = 'block';
@@ -260,9 +259,7 @@
             }
 
             function updateTable(records) {
-                // **FIXED**: Ensured 'tableBody' is used with correct case sensitivity
                 tableBody.innerHTML = '';
-                const noRecordsMessage = document.getElementById('no-records-message');
                 if (records && records.length > 0) {
                     noRecordsMessage.style.display = 'none';
                     records.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
@@ -274,7 +271,6 @@
                             <td>${record.name}</td>
                             <td>${time}</td>
                         `;
-                        // **FIXED**: Ensured 'tableBody' is used with correct case sensitivity
                         tableBody.appendChild(row);
                     });
                 } else {
