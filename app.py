@@ -26,6 +26,8 @@ app.permanent_session_lifetime = timedelta(days=7)
 # ------------------ ADMIN CREDENTIALS ------------------
 ADMINS = {
     "foryoursakeiamhere@gmail.com": {"password": "farhanadmin1", "subject": "English", "role": "admin"},
+    "admin@gmail.com":{"password":"adminadmin", "subject":"ML", "role":"admin"},
+    # "admin@gmail.com":{"password":"", "subject":"", "role":"admin"},
     "math_teacher@gmail.com": {"password": "math123", "subject": "Math", "role": "admin"}
 }
 
