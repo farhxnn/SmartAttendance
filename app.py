@@ -258,12 +258,13 @@ def generate_qr():
     session["qr_data"] = "data:image/png;base64," + qr_b64
     return redirect(url_for('admin_dashboard'))
 
-# --------- MARK ATTENDANCE VIA QR (FIXED) ----------
+
+# --------- MARK ATTENDANCE VIA QR (REVISED FOR DEBUGGING) ----------
 @app.route('/mark_attendance_qr', methods=['POST'])
 @student_required
 def mark_attendance_qr():
     data = request.get_json()
-    id_token = session.get('idToken') # Get the user's token from the session
+    id_token = session.get('idToken')
 
     if not id_token:
         return jsonify({"message": "Authentication error. Please log in again."}), 401
@@ -287,17 +288,16 @@ def mark_attendance_qr():
     try:
         student_email = session['user']
         student_email_db_key = student_email.replace('.', ',')
-        
+
         user_details = db.child("users").child(student_email_db_key).get(id_token).val()
         if not user_details or "name" not in user_details or "sol_roll_no" not in user_details:
             return jsonify({"message": "Your profile is incomplete. Cannot mark attendance."}), 404
-            
+
         student_name = user_details["name"]
         student_sol_roll_no = user_details["sol_roll_no"]
 
-        # This is the CORRECT path for writing attendance data.
         attendance_path = db.child("attendance").child(subject).child(teacher_email_db)
-        
+
         today_str = datetime.now().strftime('%Y-%m-%d')
         existing_records = attendance_path.get(id_token).val()
         if existing_records and isinstance(existing_records, dict):
@@ -314,8 +314,10 @@ def mark_attendance_qr():
             "longitude": lon,
             "inside_campus": True
         }
-        # This is the CORRECT call to save the record under the attendance_path.
-        attendance_path.push(new_record, id_token) # Use the token to authenticate the write
+
+        # --- THIS IS THE MODIFIED LINE ---
+        # Instead of using a variable, we call the full path directly.
+        db.child("attendance").child(subject).child(teacher_email_db).push(new_record, id_token)
 
         return jsonify({"message": f"Attendance marked successfully for {subject}!"})
     except Exception as e:
