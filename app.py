@@ -15,8 +15,10 @@ import sys # Import sys for flushing output
 import json # Import json for parsing firebase errors
 
 # ------------------ CONFIG ------------------
-CAMPUS_LAT = 28.72353
-CAMPUS_LON = 77.22076
+# CAMPUS_LAT = 28.72353
+CAMPUS_LAT = 28.693472
+# CAMPUS_LON = 77.22076
+CAMPUS_LON = 77.213308
 CAMPUS_RADIUS_METERS = 200
 
 app = Flask(__name__)

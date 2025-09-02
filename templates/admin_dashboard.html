@@ -265,7 +265,7 @@
                     records.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                     records.forEach(record => {
                         const row = document.createElement('tr');
-                        const time = new Date(record.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        const time = new Date(record.timestamp+ 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                         row.innerHTML = `
                             <td>${record.sol_roll_no}</td>
                             <td>${record.name}</td>
